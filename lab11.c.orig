@@ -1,0 +1,144 @@
+#include <hidef.h>      /* common defines and macros */
+#include "derivative.h"      /* derivative-specific definitions */
+#include <math.h>
+
+
+
+int notes[16]= {60,62,64,65,67,69,71,0,72,74,76,77,79,81,83,84}; //key to note lookup table
+
+
+void initializePorts()
+{
+    DDRA = 0xFF;               //Turn LEDs on
+    DDRT = 0xF0;               //Set input key
+    DDRP = 0x0F;               //Set output key
+    PPST = 0xF0;
+    PERT = 0x0F;
+
+    TIOS = 0xC0;
+
+    TSCR2_PR = 0x1;
+    TSCR2_TOI = 0x0;
+
+    TCTL1 = 0x50;
+    TCTL2 = 0x00;
+
+    PORTA = 0x00;              //LEDs off
+    PTP = 0xFE;
+    PTT = 0x0F;
+}
+
+byte getkey () {
+    int i;
+    byte scan_code = 0xff; //off code
+    PTP = 0x0E ;            //0111
+
+    for (i = 0; i<4; i++) {
+
+        if (PTT_PTT0 == 0) {
+            scan_code = i*4+0;
+            break;
+        }
+        else if (PTT_PTT1 == 0) {
+            scan_code = i*4+1;
+            break;
+        }
+        else if (PTT_PTT2 == 0) {
+            scan_code = i*4+2;
+            break;
+        }
+        else if (PTT_PTT3 == 0) {
+            scan_code = i*4+3;
+
+            break;
+        }
+        PTP = PTP<<1;          //shift PTP to check the next row PTP *2
+        PTP = PTP+1;            //add1 1 to PTP
+    }
+
+    return scan_code;
+}
+
+void block_LEDS (byte scan_code) {
+    PORTA = scan_code;
+    while (getkey()==scan_code) {  //block LEDs until key release
+    };
+}
+
+void play(int note, byte scan_code)
+{
+    int tc;
+    int f;
+    float noteRaised = 1.05946;  //Midi note raised to the 12th root (2^(1/12)
+
+    f = 27.5 * pow(noteRaised, (note - 21) );
+    tc = 1000000 / (2 * f);
+
+    TSCR1 = 0x80; //enable timer
+
+    while (getkey()==scan_code) {  //while the button is pressed
+        if (TFLG1_C7F == 1) // if PT7 has toggled:
+        {
+            TC7 += tc;
+            // set next half-period count
+            TFLG1 = 0x80; // clear channel 7 compare flag
+        }
+        if (TFLG1_C6F == 1)
+        {
+            TC6 += tc;
+            TFLG1 = 0x40;
+        }
+    }; //end while
+
+    TSCR1 = 0x00; //disable timer?
+}
+
+
+void delay(word d)
+{
+    int constant=350;
+    int i;
+    while(d>0)
+    {
+        i = constant;
+        while(i>0)
+            i--;
+        d--;
+    }
+}
+
+void keypad_button_pressed(byte scan_code)
+{
+	//put functions you want to execute when a button is pressed here:
+	play(notes[scan_code], scan_code);
+	block_LEDS(notes[scan_code]);
+}
+
+void handle_keypad()
+{
+    byte scan_code;
+    scan_code = getkey ();
+
+    if (scan_code != 0xff) //if keyboard press
+        keypad_button_pressed(scan_code);
+}
+
+void main(void) {
+	
+    initializePorts();
+
+    while(1)
+    {
+        handle_keypad();
+    }
+
+    EnableInterrupts;
+
+
+    for(;;) {
+        _FEED_COP(); /* feeds the dog */
+    } /* loop forever */
+    /* please make sure that you never leave main */
+}
+
+

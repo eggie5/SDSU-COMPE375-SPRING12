@@ -1,0 +1,76 @@
+#include <hidef.h>      /* common defines and macros */
+#include "derivative.h"      /* derivative-specific definitions */
+#include <stdio.h>
+void minMax(int x[], int size);
+void minMaxASM(int xx[], int xlength);
+int min;
+int max;
+
+
+void main(void) {
+	int a[] = {100, -100, 200, -200, 500, -500, 400, -400, 300, -300};
+  
+	minMax(a,10);
+   	minMaxASM(a, 10);
+	
+  for(;;) {
+    _FEED_COP(); /* feeds the dog */  //COP - computer opperating properly
+  } /* loop forever */
+  /* please make sure that you never leave main */
+}
+
+
+void minMax(int x[], int size)
+{
+	int i;
+	for(i=0; i<size;i++)
+	{
+		if(x[i] < min)
+		{
+			min=x[i];
+		}
+		else if(x[i] > max)
+		{
+			max=x[i];
+		}
+			
+	}
+}
+
+void minMaxASM(int xx[], int xlength)
+{
+asm 
+{
+
+	LDX xx
+	LDY xlength
+
+	Loop1:
+		LDD 2, X+
+		DBNE Y, MinMax 
+
+		BSR Done 
+
+	MinMax:
+		CPD  max  ;  compare reg D to Max
+		BGT storeMax  ;signed
+
+		CPD min     ; compares reg D to Min if Max statement fails          
+		BLT  storeMin
+
+		BSR Loop1
+     
+	storeMax:
+		STD  max     ; put D in Max
+		BSR Loop1
+
+	storeMin:
+		STD min ; put D in Min
+		BSR Loop1   
+
+
+	Done:
+		BRA Done
+        
+}     
+}
