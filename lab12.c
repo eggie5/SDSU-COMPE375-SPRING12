@@ -1,8 +1,8 @@
 /* RealTime Clock.
- * Global variable ms_count is incremented every millisecond by Timer
+ * Global variable MS_COUNT is incremented every millisecond by Timer
  * channel 5 Interrupt Service Routine.
- * Loop in main displays ms_count<15:12> on the module LEDs
- * and ms_count<11:4> project board LEDs.
+ * Loop in main displays MS_COUNT<15:12> on the module LEDs
+ * and MS_COUNT<11:4> project board LEDs.
  * Note that when a word is assigned to a byte variable, the low 8 bits
  * of the word are assigned to the byte.
  */
@@ -14,7 +14,7 @@
 
 void initializePorts(void);
 int notes[16]= {60,62,64,65,67,69,71,0,72,74,76,77,79,81,83,84}; //key to note lookup table
-volatile word ms_count = 0;
+volatile word MS_COUNT = 0;
 int i=0;
 word last_time=0;
 volatile word delay=0x0080;
@@ -36,7 +36,7 @@ enum modes {
     PLAY    = 0,
     RECORD = 1,
     PLAYBACK   = 2,
-    CONTROL   = 3
+    CONTROL   = 7
 };
 
 int current_mode;
@@ -75,12 +75,12 @@ byte get_keypad_scancode () {
 
 byte wait_for_keypad_scancode()
 {
-    byte scan_code=0;
+    byte scan_code=0xff;
 
     while((scan_code=get_keypad_scancode())==0xff) //no press
     {
         //TODO: should blink
-        PORTA=0xFF & ms_count; //hack to show led activity while waiting...
+        PORTA= MS_COUNT; //hack to show led activity while waiting...
 
     }
 
@@ -100,9 +100,9 @@ void play_with_duration(int note, word duration)
 {
     int tc;
     int f;
-    word current_duration;
+    word current_note_time;
     float noteRaised = 1.05946;  //Midi note raised to the 12th root (2^(1/12)
-    word start_time=ms_count;
+    word start_time=MS_COUNT;
 
     f = 27.5 * pow(noteRaised, (note - 21) );
     tc = 1000000 / (2 * f);
@@ -110,13 +110,13 @@ void play_with_duration(int note, word duration)
     TSCR1 = 0x80; //1000 0000 -> enable timer according to docs
 
     //duration is 10 ms
-    //ms_count is 30ms
+    //MS_COUNT is 30ms
     //now is 30ms 30-30=0 <=10 keep playing
     //now is 35ms 35-30=5 <=10 keep playing
     //now is 40ms 40-30=10 <=10 keep playing
     //now is 50ms 45-30=15 > 10 break
 
-    while ((current_duration=(ms_count-start_time))<=duration) {  //keep playing!
+    while ((current_note_time=MS_COUNT-start_time)<=duration) {  //keep playing!
 
         if (TFLG1_C7F == 1) // if PT7 has toggled:
         {
@@ -182,21 +182,22 @@ void play(byte scan_code) //really want to remove this scan_code arg -- ugly!
     TSCR1 = 0x00; //disable main timer according to docs
 }
 
-void record(byte scan_code)
+void record(char scan_code)
 {
-    int note=notes[scan_code];
-    word note_start_time;
-    word note_end_time;
+    int note=notes[(int)scan_code];
+    unsigned start_time;
+    unsigned end_time;
     NOTE n;
 
-    note_start_time=ms_count;
-    play(scan_code);
-    note_end_time=ms_count;
+    start_time=MS_COUNT;
+    // play(scan_code);
+    end_time=MS_COUNT;
 
-    //n= {note, note_start_time, note_end_time};
+    n.number=note;
+    n.startTime=start_time;
+    n.stopTime=end_time;
+    RB[iRB++]=n;
 
-    //notes[iRB]=n;
-    iRB++;
 
 }
 
@@ -204,15 +205,16 @@ void keypad_button_pressed(byte scan_code)
 {
     //intercept control press
     if(scan_code==CONTROL)
+    {
         current_mode=CONTROL;
+        toggle_modes();
+    }
 
     switch (current_mode)
     {
-    case CONTROL:
-        toggle_modes();
-        // no break - fall through //break;
     case PLAY:
-        play(scan_code);
+        // play(scan_code);
+        break;
     case PLAYBACK:
         playback(); //this will block the thread till playback is done
         break;
@@ -241,6 +243,7 @@ void main(void) {
 
     for(;;) {
 
+        PORTB=MS_COUNT;
         handle_keypad(); //check if buttons pressed
 
     }
@@ -250,7 +253,7 @@ void main(void) {
 
 /////////////////// Timer5 Interrupt Service Routine  /////////////
 void interrupt 13 ISR_Timer5(void) {
-    ms_count++;
+    MS_COUNT++;
 
 
     TC5 += 1000;   // Interrupt again in 1 ms
@@ -262,7 +265,13 @@ void interrupt 13 ISR_Timer5(void) {
 void initializePorts() {
     DDRA = 0xFF;  	// PTA<7:0> - outputs	 (LEDs)
     DDRB = 0xF0;   // Make PTB<7:4> outputs
+
+    //TIOS = 0x20 0010 0000 for timer lab 11
+    //TIOS = 0xC0 1100 0000 for piano lab 10
+    //TIOS = 0xE0 1110 0000 for lab 12
+    // TIOS=0xC0;
     TIOS = 0x20;    // Make IOC5 an output.  It is NECCESSARY to make
+
     // a timer bit an output (not of the chip, but of the
     // internal Timer Block) in order to have it generate
     // an interrupt request.
@@ -271,14 +280,24 @@ void initializePorts() {
     TSCR2 = 0x01;   // Set Timer prescaler bits PR<2:0> to 001
     // and disable Timer Overflow interrupt.
     // Timer counter clock = BusClock / 2 = 1MHz
+
+
+// piano timer settings from lab 10
+    //TIOS = 0xC0; //1100 0000 -> enable timer 7 & 6 according to docs
+    // TSCR2_PR = 0x1;
+    //TSCR2_TOI = 0x0;
+    //TCTL1 = 0x50;//0101 0000 timer control register 1
+    //TCTL2 = 0x00;
+
+
+    DDRT = 0xF0;               //Set input key
+    DDRP = 0x0F;               //Set output key
+    PPST = 0xF0;
+    PERT = 0x0F;
+
+    PTP = 0xFE;
+    PTT = 0x0F;
 }
-
-
-
-
-
-
-
 
 
 
