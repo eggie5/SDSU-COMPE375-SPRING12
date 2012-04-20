@@ -179,6 +179,8 @@ void play(byte scan_code) //really want to remove this scan_code arg -- ugly!
 
 
     //replace this w/ code that enables/disables the OM/OL bits
+
+	//FIXME: commenting this line out allows piano function to work but there is clicking....
     //TSCR1 = 0x00; //disable main timer according to docs
 }
 
@@ -190,7 +192,7 @@ void record(char scan_code)
     NOTE n;
 
     start_time=MS_COUNT;
-    // play(scan_code);
+    play(scan_code);
     end_time=MS_COUNT;
 
     n.number=note;
@@ -218,11 +220,11 @@ void keypad_button_pressed(byte scan_code)
         break;
     case RECORD:
         PORTA=0x33;
-        //record(scan_code);
+        record(scan_code);
         break;
     case PLAYBACK:
         PORTA=0x77;
-        // playback(); //this will block the thread till playback is done
+        playback(); //this will block the thread till playback is done
         break;
     }
 
