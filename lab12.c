@@ -81,7 +81,6 @@ byte wait_for_keypad_scancode()
     {
         //TODO: should blink
         PORTA= MS_COUNT; //hack to show led activity while waiting...
-
     }
 
     //at this point a button press has been captured
@@ -92,7 +91,7 @@ byte wait_for_keypad_scancode()
 void toggle_modes()
 {
     byte new_mode=wait_for_keypad_scancode();
-    current_mode=new_mode;
+    current_mode=(int)new_mode;
 }
 
 
@@ -179,7 +178,8 @@ void play(byte scan_code) //really want to remove this scan_code arg -- ugly!
     }; //end while
 
 
-    TSCR1 = 0x00; //disable main timer according to docs
+    //replace this w/ code that enables/disables the OM/OL bits
+    //TSCR1 = 0x00; //disable main timer according to docs
 }
 
 void record(char scan_code)
@@ -213,13 +213,16 @@ void keypad_button_pressed(byte scan_code)
     switch (current_mode)
     {
     case PLAY:
-        // play(scan_code);
-        break;
-    case PLAYBACK:
-        playback(); //this will block the thread till playback is done
+        PORTA=0x11;
+        play(scan_code);
         break;
     case RECORD:
-        record(scan_code);
+        PORTA=0x33;
+        //record(scan_code);
+        break;
+    case PLAYBACK:
+        PORTA=0x77;
+        // playback(); //this will block the thread till playback is done
         break;
     }
 
@@ -261,16 +264,17 @@ void interrupt 13 ISR_Timer5(void) {
     // again if flag is not cleared.
 }
 
-//TODO: Need to merge these settings with piano (lab 10) code
+
+
 void initializePorts() {
     DDRA = 0xFF;  	// PTA<7:0> - outputs	 (LEDs)
     DDRB = 0xF0;   // Make PTB<7:4> outputs
 
     //TIOS = 0x20 0010 0000 for timer lab 11
     //TIOS = 0xC0 1100 0000 for piano lab 10
-    //TIOS = 0xE0 1110 0000 for lab 12
+    TIOS = 0xE0;// 1110 0000 for lab 12
     // TIOS=0xC0;
-    TIOS = 0x20;    // Make IOC5 an output.  It is NECCESSARY to make
+    //TIOS = 0x20;    // Make IOC5 an output.  It is NECCESSARY to make
 
     // a timer bit an output (not of the chip, but of the
     // internal Timer Block) in order to have it generate
@@ -284,10 +288,10 @@ void initializePorts() {
 
 // piano timer settings from lab 10
     //TIOS = 0xC0; //1100 0000 -> enable timer 7 & 6 according to docs
-    // TSCR2_PR = 0x1;
-    //TSCR2_TOI = 0x0;
-    //TCTL1 = 0x50;//0101 0000 timer control register 1
-    //TCTL2 = 0x00;
+    TSCR2_PR = 0x1;
+    TSCR2_TOI = 0x0;
+    TCTL1 = 0x50;//0101 0000 timer control register 1 --marino told me just chan 6
+    TCTL2 = 0x00;
 
 
     DDRT = 0xF0;               //Set input key
