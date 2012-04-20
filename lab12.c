@@ -1,11 +1,4 @@
-/* RealTime Clock.
- * Global variable MS_COUNT is incremented every millisecond by Timer
- * channel 5 Interrupt Service Routine.
- * Loop in main displays MS_COUNT<15:12> on the module LEDs
- * and MS_COUNT<11:4> project board LEDs.
- * Note that when a word is assigned to a byte variable, the low 8 bits
- * of the word are assigned to the byte.
- */
+//Alex Egg Lab 12
 
 #include <hidef.h>      /* common defines and macros */
 #include <MC9S12C128.h>     /* derivative information */
@@ -39,7 +32,7 @@ enum modes {
     CONTROL   = 7
 };
 
-int current_mode;
+int CURRENT_MODE;
 
 //hex keypad routine
 byte get_keypad_scancode () {
@@ -88,10 +81,31 @@ byte wait_for_keypad_scancode()
 
 }
 
-void toggle_modes()
+void set_state(int state)
+{
+    CURRENT_MODE=state;
+
+    switch (state)
+    {
+    case PLAY:
+        PORTA=0x11;
+        break;
+    case RECORD:
+        //reset array
+
+        PORTA=0x33;
+        break;
+    case PLAYBACK:
+        PORTA=0x77;
+        break;
+    }
+}
+
+void toggle_state()
 {
     byte new_mode=wait_for_keypad_scancode();
-    current_mode=(int)new_mode;
+
+    set_state((int)new_mode);
 }
 
 
@@ -106,14 +120,8 @@ void play_with_duration(int note, word duration)
     f = 27.5 * pow(noteRaised, (note - 21) );
     tc = 1000000 / (2 * f);
 
-    TSCR1 = 0x80; //1000 0000 -> enable timer according to docs
-
-    //duration is 10 ms
-    //MS_COUNT is 30ms
-    //now is 30ms 30-30=0 <=10 keep playing
-    //now is 35ms 35-30=5 <=10 keep playing
-    //now is 40ms 40-30=10 <=10 keep playing
-    //now is 50ms 45-30=15 > 10 break
+    //TSCR1 = 0x80; //1000 0000 -> enable timer according to docs
+    TCTL1=0x50;
 
     while ((current_note_time=MS_COUNT-start_time)<=duration) {  //keep playing!
 
@@ -130,8 +138,8 @@ void play_with_duration(int note, word duration)
         }
     }; //end while
 
-
-    TSCR1 = 0x00; //disable main timer according to docs
+    TCTL1=0x00;
+    //TSCR1 = 0x00; //disable main timer according to docs
 }
 
 void playback()
@@ -159,8 +167,9 @@ void play(byte scan_code) //really want to remove this scan_code arg -- ugly!
     f = 27.5 * pow(noteRaised, (note - 21) );
     tc = 1000000 / (2 * f);
 
-    TSCR1 = 0x80; //1000 0000 -> enable timer according to docs
+    //TSCR1 = 0x80; //1000 0000 -> enable timer according to docs
 
+    TCTL1=0x50;
 
     while (get_keypad_scancode()==scan_code) {  //while the button is pressed
 
@@ -177,10 +186,11 @@ void play(byte scan_code) //really want to remove this scan_code arg -- ugly!
         }
     }; //end while
 
-
+    TCTL1=0x00;
     //replace this w/ code that enables/disables the OM/OL bits
 
-	//FIXME: commenting this line out allows piano function to work but there is clicking....
+    //FIXME: commenting this line out allows piano function to work but there is clicking....
+    //this seems to disable all the timers
     //TSCR1 = 0x00; //disable main timer according to docs
 }
 
@@ -193,7 +203,7 @@ void record(char scan_code)
 
     start_time=MS_COUNT;
     play(scan_code);
-    end_time=MS_COUNT;
+    end_time=MS_COUNT+5; // add 5 'cause it seems too fast
 
     n.number=note;
     n.startTime=start_time;
@@ -203,28 +213,28 @@ void record(char scan_code)
 
 }
 
+
+
 void keypad_button_pressed(byte scan_code)
 {
     //intercept control press
     if(scan_code==CONTROL)
     {
-        current_mode=CONTROL;
-        toggle_modes();
+        CURRENT_MODE=CONTROL;
+        toggle_state();
     }
 
-    switch (current_mode)
+    switch (CURRENT_MODE)
     {
     case PLAY:
-        PORTA=0x11;
         play(scan_code);
         break;
     case RECORD:
-        PORTA=0x33;
         record(scan_code);
         break;
     case PLAYBACK:
-        PORTA=0x77;
         playback(); //this will block the thread till playback is done
+        set_state(PLAY);
         break;
     }
 
@@ -245,6 +255,9 @@ void handle_keypad()
 void main(void) {
     initializePorts();
     EnableInterrupts;  // Equivalent to  asm CLI
+
+    //start in PLAY state
+    set_state(PLAY);
 
     for(;;) {
 
@@ -275,7 +288,7 @@ void initializePorts() {
     //TIOS = 0x20 0010 0000 for timer lab 11
     //TIOS = 0xC0 1100 0000 for piano lab 10
     TIOS = 0xE0;// 1110 0000 for lab 12
-    // TIOS=0xC0;
+    //TIOS=0xC0;
     //TIOS = 0x20;    // Make IOC5 an output.  It is NECCESSARY to make
 
     // a timer bit an output (not of the chip, but of the
@@ -292,7 +305,7 @@ void initializePorts() {
     //TIOS = 0xC0; //1100 0000 -> enable timer 7 & 6 according to docs
     TSCR2_PR = 0x1;
     TSCR2_TOI = 0x0;
-    TCTL1 = 0x50;//0101 0000 timer control register 1 --marino told me just chan 6
+    // TCTL1 =0x50;// 0x50;//0101 0000 timer control register 1 --marino told me just chan 6
     TCTL2 = 0x00;
 
 
