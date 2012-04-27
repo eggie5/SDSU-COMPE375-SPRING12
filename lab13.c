@@ -1,17 +1,19 @@
-//Alex Egg Lab 12
+//Alex Egg Lab 13
 
 #include <hidef.h>      /* common defines and macros */
 #include <MC9S12C128.h>     /* derivative information */
 #include <math.h>
 
+byte LED_PATTERNS[]= {0x00,0x01,0x03,0x07,0x0F,0x1F,0x3F,0x7F,0xFF,0x7F,0x1F,0x0F,0x07,0x03,0x01,0x00};
+int LED_INDEX=0;
+word LEDS_LAST_TIME=0;
 
-void initializePorts(void);
-byte PATTERNS[]= {0x00,0x01,0x03,0x07,0x0F,0x1F,0x3F,0x7F,0xFF,0x7F,0x1F,0x0F,0x07,0x03,0x01,0x00};
-int notes[16]= {60,62,64,65,67,69,71,0,72,74,76,77,79,81,83,84}; //key to note lookup table
+int NOTES[16]= {60,62,64,65,67,69,71,0,72,74,76,77,79,81,83,84}; //key to note lookup table
+
 volatile word MS_COUNT = 0;
-int i=0;
-word last_time=0;
-volatile word delay=0x0080;
+
+volatile word LED_PATTERN_DELAY=0x0080;
+int CURRENT_MODE;
 
 typedef struct {
     byte number; // MIDI note number
@@ -100,7 +102,7 @@ enum KEYS
     NOKEY=0xFF
 };
 
-int CURRENT_MODE;
+
 
 //hex keypad routine
 byte get_keypad_scancode () {
@@ -137,15 +139,13 @@ byte get_keypad_scancode () {
 
 byte wait_for_keypad_scancode()
 {
-    byte scan_code=0xFF;
+    byte scan_code=NOKEY;
     word lt=0;
     int i=0;
 
-
-
     PORTA=0x00;
 
-    while(scan_code==0xFF || scan_code==0x07) //no press
+    while(scan_code==NOKEY || scan_code==KEYB) //no press
     {
 
         word delta_from_last_update=MS_COUNT-lt;
@@ -193,8 +193,6 @@ void toggle_state()
     set_state((int)new_mode);
 }
 
-//TODO: supposed to play this on channel 7
-//TODO: fix timing bug
 void play_with_duration(int note, word duration)
 {
     int tc;
@@ -221,7 +219,8 @@ void play_with_duration(int note, word duration)
 }
 
 
-
+//FIX: This needs to play w/ inturrupts
+//becuase it blocks the thread until finished
 void playback(NOTE notes[], int len)
 {
     int i;
@@ -234,9 +233,11 @@ void playback(NOTE notes[], int len)
         note_duration=notes[i].stopTime - notes[i].startTime;
         play_with_duration(notes[i].number, note_duration);
 
+        //sleep between notes
         if(i<len-1)
         {
             wait_time=notes[i+1].startTime - notes[i].stopTime;
+            wait_time+=100; //HACK: cause playback seems a little fast
 
             // sleep
             elapsed_time=0;//ms
@@ -253,7 +254,7 @@ void playback(NOTE notes[], int len)
 
 void play(byte scan_code) //really want to remove this scan_code arg -- ugly!
 {
-    int note=notes[scan_code];
+    int note=NOTES[scan_code];
 
     int tc;
     int f;
@@ -276,7 +277,7 @@ void play(byte scan_code) //really want to remove this scan_code arg -- ugly!
 
 void record(char scan_code)
 {
-    int note=notes[(int)scan_code];
+    int note=NOTES[(int)scan_code];
     unsigned start_time;
     unsigned end_time;
     NOTE n;
@@ -292,7 +293,7 @@ void record(char scan_code)
 
 }
 
-void readButtons()
+void handle_buttons()
 {
     word delay_increment=0x10;
 
@@ -303,14 +304,14 @@ void readButtons()
             ;
         }
 
-        if(delay_increment<= delay)
+        if(delay_increment<= LED_PATTERN_DELAY)
         {
-            delay-=delay_increment;
+            LED_PATTERN_DELAY-=delay_increment;
         }
         else
         {
 
-            delay=0;
+            LED_PATTERN_DELAY=0;
         }
 
 
@@ -320,7 +321,7 @@ void readButtons()
         while (PTM_PTM5==0) 	{
             ;
         }
-        delay+=delay_increment;
+        LED_PATTERN_DELAY+=delay_increment;
 
     }
 }
@@ -368,64 +369,9 @@ void handle_keypad()
     byte scan_code;
     scan_code = get_keypad_scancode();
 
-    if (scan_code != 0xff) //if keypad is pressed, publish event
+    if (scan_code != NOKEY) //if keypad is pressed, publish event
         keypad_button_pressed(scan_code); //press event
 }
-
-void main(void) {
-    byte b=0x0;
-    initializePorts();
-    EnableInterrupts;  // Equivalent to  asm CLI
-
-    //start in PLAY state
-    set_state(PLAY);
-
-    for(;;) {
-
-        readButtons();
-        handle_keypad(); //check if buttons pressed
-
-    }
-}
-
-
-
-void leds()
-{
-    word delta_from_last_update=MS_COUNT-last_time;
-    if(CURRENT_MODE==CONTROL) return;
-
-    if(delta_from_last_update>=delay)
-    {
-
-        PORTA=PATTERNS[i];
-        i++;
-        last_time=MS_COUNT;
-    }
-
-    if(i>13)
-    {
-
-        i=0;
-    }
-
-
-}
-
-/////////////////// Timer5 Interrupt Service Routine  /////////////
-void interrupt 13 ISR_Timer5(void) {
-    MS_COUNT++;
-
-    leds();
-
-    PORTB=~PORTB;
-
-    TC5 += 1000;   // Interrupt again in 1 ms
-    TFLG1 = 0x20;  // Clear Timer5 Flag;  will not interrupt
-    // again if flag is not cleared.
-}
-
-
 
 void initializePorts() {
     DDRA = 0xFF;  	// PTA<7:0> - outputs	 (LEDs)
@@ -456,6 +402,62 @@ void initializePorts() {
     //PPST = 0xF0;
     //PTP = 0xFE;
     //PTT = 0x0F;
+}
+
+
+
+void leds()
+{
+    word delta_from_last_update=MS_COUNT-LEDS_LAST_TIME;
+    if(CURRENT_MODE==CONTROL) return;
+
+    if(delta_from_last_update>=LED_PATTERN_DELAY)
+    {
+
+        PORTA=LED_PATTERNS[LED_INDEX];
+        LED_INDEX++;
+        LEDS_LAST_TIME=MS_COUNT;
+    }
+
+    if(LED_INDEX>13)
+    {
+
+        LED_INDEX=0;
+    }
+
+
+}
+
+/////////////////// Timer5 Interrupt Service Routine  /////////////
+void interrupt 13 ISR_Timer5(void) {
+    MS_COUNT++;
+
+    leds();
+
+    PORTB=~PORTB;
+
+    TC5 += 1000;   // Interrupt again in 1 ms
+    TFLG1 = 0x20;  // Clear Timer5 Flag;  will not interrupt
+    // again if flag is not cleared.
+}
+
+
+
+
+
+void main(void) {
+    initializePorts();
+    EnableInterrupts;  // Equivalent to  asm CLI
+
+    //start in PLAY state
+    set_state(PLAY);
+
+    for(;;) {
+
+        handle_buttons();
+        handle_keypad(); //check if buttons pressed
+
+    }
 }
 
 
