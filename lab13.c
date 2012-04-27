@@ -138,9 +138,9 @@ byte get_keypad_scancode () {
 byte wait_for_keypad_scancode()
 {
     byte scan_code=0xFF;
-	word lt=0;
-	int i=0;
-	
+    word lt=0;
+    int i=0;
+
 
 
     PORTA=0x00;
@@ -148,14 +148,14 @@ byte wait_for_keypad_scancode()
     while(scan_code==0xFF || scan_code==0x07) //no press
     {
 
-		word delta_from_last_update=MS_COUNT-lt;
+        word delta_from_last_update=MS_COUNT-lt;
         if(delta_from_last_update>=200)
-	    {
+        {
 
-			PORTA=~PORTA;
-	        i++;
-	        lt=MS_COUNT;
-	    }
+            PORTA=~PORTA;
+            i++;
+            lt=MS_COUNT;
+        }
 
         scan_code = get_keypad_scancode();
     }
@@ -225,11 +225,27 @@ void play_with_duration(int note, word duration)
 void playback(NOTE notes[], int len)
 {
     int i;
-    word duration;
+    word note_duration, start_time, elapsed_time, wait_time=0;
+
     for(i=0; i<len; i++)
     {
-        duration=notes[i].stopTime - notes[i].startTime;
-        play_with_duration(notes[i].number, duration);
+        start_time=MS_COUNT;
+
+        note_duration=notes[i].stopTime - notes[i].startTime;
+        play_with_duration(notes[i].number, note_duration);
+
+        if(i<len-1)
+        {
+            wait_time=notes[i+1].startTime - notes[i].stopTime;
+
+            // sleep
+            elapsed_time=0;//ms
+            while(elapsed_time<=wait_time)
+            {
+                elapsed_time=MS_COUNT-start_time;
+            }
+        }
+
 
     }
 }
@@ -266,8 +282,8 @@ void record(char scan_code)
     NOTE n;
 
     start_time=MS_COUNT;
-    play(scan_code);
-    end_time=MS_COUNT+5; // add 5 'cause it seems too fast
+    play(scan_code); //blocks
+    end_time=MS_COUNT;
 
     n.number=note;
     n.startTime=start_time;
@@ -334,9 +350,11 @@ void keypad_button_pressed(byte scan_code)
         break;
     case SONG1:
         playback(Song1, 15);
+        set_state(PLAY);
         break;
     case SONG2:
         playback(Song2, 36);
+        set_state(PLAY);
         break;
     }
 
