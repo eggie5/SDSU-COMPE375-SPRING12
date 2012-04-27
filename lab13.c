@@ -94,6 +94,12 @@ enum modes {
     CONTROL   = 7
 };
 
+enum KEYS
+{
+    KEYB=7,
+    NOKEY=0xFF
+};
+
 int CURRENT_MODE;
 
 //hex keypad routine
@@ -128,20 +134,37 @@ byte get_keypad_scancode () {
     return scan_code;
 }
 
+
 byte wait_for_keypad_scancode()
 {
-    byte scan_code=0xff;
+    byte scan_code=0xFF;
+	word lt=0;
+	int i=0;
+	
 
-    while((scan_code=get_keypad_scancode())==0xff) //no press
+
+    PORTA=0x00;
+
+    while(scan_code==0xFF || scan_code==0x07) //no press
     {
-        //TODO: should blink
-        PORTA= MS_COUNT; //hack to show led activity while waiting...
+
+		word delta_from_last_update=MS_COUNT-lt;
+        if(delta_from_last_update>=200)
+	    {
+
+			PORTA=~PORTA;
+	        i++;
+	        lt=MS_COUNT;
+	    }
+
+        scan_code = get_keypad_scancode();
     }
 
     //at this point a button press has been captured
     return scan_code;
 
 }
+
 
 void set_state(int state)
 {
@@ -184,24 +207,15 @@ void play_with_duration(int note, word duration)
     tc = 1000000 / (2 * f);
 
 
-    //TCTL1_OL6=1;//=0x50; //0101 0000
     TCTL1_OL7=1;
-
     while ((current_note_time=MS_COUNT-start_time)<=duration) {  //keep playing!
 
         if (TFLG1_C7F == 1) // if PT7 has toggled:
         {
             TC7 += tc;
-            TFLG1 = 0x80; // clear channel 7 compare flag
+            TFLG1_C7F = 1; // clear channel 7 compare flag
         }
-        // if (TFLG1_C6F == 1)
-        //       {
-        //           TC6 += tc;
-        //           TFLG1 = 0x40;
-        //       }
     }; //end while
-
-    //TCTL1_OL6=0;
     TCTL1_OL7=0;
 
 }
@@ -233,15 +247,14 @@ void play(byte scan_code) //really want to remove this scan_code arg -- ugly!
     tc = 1000000 / (2 * f);
 
     TCTL1_OL6=1;
+    while (get_keypad_scancode()==scan_code) {  //keep playing!
 
-    while (get_keypad_scancode()==scan_code) {  //while the button is pressed
-        if (TFLG1_C6F == 1)
+        if (TFLG1_C6F == 1) // if PT7 has toggled:
         {
             TC6 += tc;
-            TFLG1 = 0x40; //clear channel 6
+            TFLG1_C6F = 1; // clear channel 7 compare flag
         }
     }; //end while
-
     TCTL1_OL6=0;
 }
 
@@ -342,6 +355,7 @@ void handle_keypad()
 }
 
 void main(void) {
+    byte b=0x0;
     initializePorts();
     EnableInterrupts;  // Equivalent to  asm CLI
 
@@ -352,7 +366,6 @@ void main(void) {
 
         readButtons();
         handle_keypad(); //check if buttons pressed
-        PORTB=MS_COUNT;
 
     }
 }
@@ -361,8 +374,8 @@ void main(void) {
 
 void leds()
 {
-
     word delta_from_last_update=MS_COUNT-last_time;
+    if(CURRENT_MODE==CONTROL) return;
 
     if(delta_from_last_update>=delay)
     {
@@ -387,6 +400,8 @@ void interrupt 13 ISR_Timer5(void) {
 
     leds();
 
+    PORTB=~PORTB;
+
     TC5 += 1000;   // Interrupt again in 1 ms
     TFLG1 = 0x20;  // Clear Timer5 Flag;  will not interrupt
     // again if flag is not cleared.
@@ -397,30 +412,32 @@ void interrupt 13 ISR_Timer5(void) {
 void initializePorts() {
     DDRA = 0xFF;  	// PTA<7:0> - outputs	 (LEDs)
     DDRB = 0xF0;   // Make PTB<7:4> outputs
-
+    TSCR1 = 0x80;   // Set TEN = 1 (Enable timer to count up)
+    //The period that the timer counts depends on the value you write in the TSCR2 register at address $4D.
+    TSCR2 = 0x01;   // Set Timer prescaler bits PR<2:0> to 001
     //TIOS = 0x20 0010 0000 for timer lab 11
     //TIOS = 0xC0 1100 0000 for piano lab 10
-	TIOS = 0xE0; // Make IOC5 an output.  It is NECCESSARY to make
+    TIOS = 0xF0; // Make IOC5 an output.  It is NECCESSARY to make
     // a timer bit an output (not of the chip, but of the
     // internal Timer Block) in order to have it generate
     // an interrupt request.
 
-    TSCR1 = 0x80;   // Set TEN = 1 (Enable timer)
+
     TIE = 0x20;     // Turn on Timer5 interrupt; disable others
-    TSCR2 = 0x01;   // Set Timer prescaler bits PR<2:0> to 001
-    // and disable Timer Overflow interrupt.
-    // Timer counter clock = BusClock / 2 = 1MHz
 
-    TCTL1=0x00;
-    TCTL2 = 0x00;
 
-    DDRT = 0xF0;               //Set input key
-    DDRP = 0x0F;               //Set output key
-    PPST = 0xF0;
-    PERT = 0x0F; //pull up resistor
 
-    PTP = 0xFE;
-    PTT = 0x0F;
+
+    //hexkeypad
+    DDRP = 0x0F;               //Set output key - for hex keypad
+
+    PERT = 0x0F; //pull up resistor or speaker freaks out
+
+
+    // DDRT = 0x00;               //Set input key
+    //PPST = 0xF0;
+    //PTP = 0xFE;
+    //PTT = 0x0F;
 }
 
 
